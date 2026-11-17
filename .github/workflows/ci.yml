@@ -1,0 +1,109 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [test, main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify candidate
+    if: >-
+      ${{ github.repository == 'Joselinares17/marketplace-backend' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      SPRING_PROFILES_ACTIVE: ci
+    steps:
+      - name: Checkout exact event candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate provenance and promotion
+        id: candidate
+        run: python3 scripts/ci/policy.py
+      - name: Set up Java
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: corretto
+          java-version: '25.0.5'
+          overwrite-settings: false
+          cache: maven
+          cache-read-only: ${{ github.event_name != 'push' }}
+          cache-dependency-path: |
+            marketplace-backend/pom.xml
+            marketplace-backend/.mvn/wrapper/maven-wrapper.properties
+      - name: Install checksum-verified tools
+        id: tools
+        run: python3 scripts/ci/tools.py
+      - name: Validate automation
+        if: ${{ !cancelled() && steps.candidate.outcome == 'success' && steps.tools.outcome == 'success' }}
+        run: |
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+          .ci-tools/actionlint .github/workflows/ci.yml
+      - name: Scan changed commits for secrets
+        if: ${{ !cancelled() && steps.candidate.outcome == 'success' && steps.tools.outcome == 'success' }}
+        run: python3 scripts/ci/scan.py secrets
+      - name: Check Docker
+        id: docker
+        if: ${{ !cancelled() && steps.candidate.outcome == 'success' }}
+        run: docker info --format '{{.ServerVersion}}'
+      - name: Verify backend
+        if: ${{ !cancelled() && steps.candidate.outcome == 'success' && steps.docker.outcome == 'success' }}
+        working-directory: marketplace-backend
+        run: ./mvnw -B -ntp clean verify
+      - name: Resolve dependency SBOM
+        id: sbom
+        if: ${{ !cancelled() && steps.candidate.outcome == 'success' }}
+        working-directory: marketplace-backend
+        run: >-
+          ./mvnw -B -ntp org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
+          -DincludeTestScope=true -DoutputFormat=json -DoutputName=dependency-bom.cdx
+      - name: Scan resolved dependencies
+        if: ${{ !cancelled() && steps.sbom.outcome == 'success' && steps.tools.outcome == 'success' }}
+        run: python3 scripts/ci/scan.py dependencies
+      - name: Collect and verify sanitized test reports
+        if: ${{ always() && steps.candidate.outcome == 'success' }}
+        run: python3 scripts/ci/evidence.py
+      - name: Preserve candidate evidence
+        if: ${{ always() && steps.candidate.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            quality-evidence/candidate.json
+            quality-evidence/tests.json
+            quality-evidence/secrets.json
+            quality-evidence/dependencies.json
+            quality-evidence/TEST-*.xml
+          if-no-files-found: error
+          retention-days: 7
+
+  result:
+    name: Backend CI result
+    if: ${{ always() }}
+    needs: [verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require successful candidate verification
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          if [ "$VERIFY_RESULT" != success ]; then
+            echo 'A required verification failed, was cancelled or was skipped.'
+            exit 1
+          fi

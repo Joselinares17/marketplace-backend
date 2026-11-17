@@ -32,14 +32,15 @@ class LoggingConfigurationTests {
                 .bannerMode(org.springframework.boot.Banner.Mode.OFF).registerShutdownHook(false);
     }
 
-    private String[] properties(String password) {
-        return new String[]{"--spring.datasource.url=jdbc:postgresql://db.example.invalid:5432/app?sslmode=verify-full",
+    private String[] properties(String profile, String password) {
+        return new String[]{"--spring.profiles.active="+profile,
+                "--spring.datasource.url=jdbc:postgresql://db.example.invalid:5432/app?sslmode=verify-full",
                 "--spring.datasource.username=synthetic_app", "--spring.datasource.password="+password};
     }
 
     @ParameterizedTest @ValueSource(strings={"local","ci","staging","prod"})
     void emitsProtectedRealJsonForEachEnvironment(String profile, CapturedOutput output) {
-        try (var context = application(profile).run(properties(SECRET))) {
+        try (var context = application(profile).run(properties(profile, SECRET))) {
             assertThat(context.getBean(DataSourceProperties.class).toString()).doesNotContain(SECRET);
             var logger = LoggerFactory.getLogger("com.linares.marketplace.loggingprobe");
             MDC.put("Authorization", "Bearer AUTH_SECRET_CANARY");
@@ -72,6 +73,7 @@ class LoggingConfigurationTests {
 
     @Test void missingProductionPropertiesFailWithSafeRealLogs(CapturedOutput output) {
         assertThatThrownBy(() -> application("prod").run(
+                "--spring.profiles.active=prod",
                 "--spring.datasource.url=", "--spring.datasource.username=",
                 "--spring.datasource.password="+SECRET))
             .hasStackTraceContaining("spring.datasource.url");
@@ -80,7 +82,7 @@ class LoggingConfigurationTests {
 
     @ParameterizedTest @ValueSource(strings={"spring.datasource.username", "spring.datasource.password"})
     void missingCredentialFailsBeforeConnectionWithSafeOutput(String key, CapturedOutput output) {
-        var args = new java.util.ArrayList<>(List.of(properties(SECRET)));
+        var args = new java.util.ArrayList<>(List.of(properties("prod", SECRET)));
         args.removeIf(argument -> argument.startsWith("--" + key + "="));
         args.add("--" + key + "=");
         assertThatThrownBy(() -> application("prod").run(args.toArray(String[]::new)))
@@ -89,7 +91,7 @@ class LoggingConfigurationTests {
     }
 
     @Test void rejectsDiagnosticLoggingBeforeStartup(CapturedOutput output) {
-        var args = new java.util.ArrayList<>(List.of(properties(SECRET)));
+        var args = new java.util.ArrayList<>(List.of(properties("prod", SECRET)));
         args.add("--logging.level.root=DEBUG");
         assertThatThrownBy(() -> application("prod").run(args.toArray(String[]::new)))
                 .hasStackTraceContaining("logging.level");
@@ -97,13 +99,14 @@ class LoggingConfigurationTests {
     }
 
     @Test void rejectsMixedEnvironmentProfilesWithSafeOutput(CapturedOutput output) {
-        assertThatThrownBy(() -> application("prod").profiles("local").run(properties(SECRET)))
+        assertThatThrownBy(() -> application("prod").profiles("local").run(properties("prod", SECRET)))
                 .hasStackTraceContaining("exactly one environment");
         assertThat(output.getAll()).doesNotContain(SECRET);
     }
 
     @Test void malformedConfigurationErrorDoesNotLogRejectedCredentials(CapturedOutput output) {
         assertThatThrownBy(() -> application("prod").run(
+                "--spring.profiles.active=prod",
                 "--spring.datasource.url=jdbc:postgresql://user:"+SECRET+"@db/app",
                 "--spring.datasource.username=synthetic", "--spring.datasource.password="+SECRET))
             .hasStackTraceContaining("spring.datasource.url");
@@ -111,7 +114,7 @@ class LoggingConfigurationTests {
     }
 
     @Test void cloudDoesNotInheritLocalDefaults(CapturedOutput output) {
-        try (var context = application("prod").run(properties(SECRET))) {
+        try (var context = application("prod").run(properties("prod", SECRET))) {
             assertThat(context.getEnvironment().getProperty("spring.datasource.url")).contains("db.example.invalid")
                     .doesNotContain("localhost","marketplace_local");
         }
