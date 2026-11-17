@@ -1,6 +1,8 @@
 spring:
   application:
     name: marketplace-backend
+  modulith:
+    detection-strategy: explicitly-annotated
   threads:
     virtual:
       enabled: true

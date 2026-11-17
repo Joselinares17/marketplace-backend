@@ -1,5 +1,6 @@
 package com.linares.marketplace;
 
+import com.linares.marketplace.bootstrap.MarketplaceBackendApplication;
 import org.springframework.boot.SpringApplication;
 
 public class TestMarketplaceBackendApplication {

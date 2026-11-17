@@ -19,7 +19,7 @@ La base del proyecto es Java 25 con Spring Boot y Maven. Usamos Spring MVC para 
 | Infraestructura | AWS y Terraform |
 | CI/CD | GitHub Actions |
 
-Las versiones concretas de las dependencias se fijarán al configurar el build y comprobar su compatibilidad.
+El build utiliza Java 25, Spring Boot 4.1.2, el BOM de Spring Modulith 2.1.1 y Maven Wrapper 3.9.11. Las capacidades de persistencia, seguridad e infraestructura de la tabla son decisiones para etapas posteriores; no se activan en el arranque mínimo.
 
 ## Organización del código
 
@@ -35,7 +35,31 @@ La aplicación será un monolito modular: se compila y despliega como una sola a
 - `compliance`: controles y obligaciones de la plataforma.
 - `notifications`: envío de correos y otras comunicaciones.
 
-Cada módulo expone los contratos que necesitan los demás y mantiene sus clases internas encapsuladas. Spring Modulith permitirá verificar esos límites y detectar dependencias circulares.
+El paquete base es `com.linares.marketplace`:
+
+```text
+com.linares.marketplace
+├── bootstrap       # MarketplaceBackendApplication y configuración técnica
+├── contracts       # Datos y eventos neutros compartidos
+└── modules
+    ├── identity
+    ├── sellers     # Incluye reseñas
+    ├── catalog
+    ├── orders
+    ├── payments
+    ├── shipping
+    ├── disputes
+    ├── compliance
+    └── notifications
+```
+
+Cada módulo se declara cerrado mediante `@ApplicationModule` en su `package-info.java`. La estrategia oficial `explicitly-annotated` y `@Modulithic(additionalPackages = "com.linares.marketplace.modules")` permiten detectar los nueve módulos sin contar `modules`, `bootstrap` ni `contracts` como módulos de negocio. La prueba comprueba los nueve identificadores y sus paquetes exactos.
+
+Por ahora `allowedDependencies = {}` prohíbe dependencias entre módulos: no hay casos de uso que las justifiquen. Cuando se necesite comunicación, se declarará la dependencia concreta y se utilizarán contratos públicos del paquete raíz del módulo, interfaces nombradas explícitamente o eventos. Los subpaquetes permanecen internos. `contracts` se reserva para datos/eventos neutros, sin lógica, entidades JPA ni tipos de SDK de proveedores.
+
+No se crean capas vacías ni implementaciones de negocio. El arranque está en `bootstrap`, con escaneo de componentes y paquetes de autoconfiguración sobre `com.linares.marketplace`; esto conserva la raíz adecuada para futuros repositorios y entidades sin agregar JPA todavía.
+
+Las fixtures inválidas están únicamente en `src/test/java/example/marketplacefixtures`, fuera del escaneo de la aplicación. Solo sus pruebas permiten importar las clases de test en el modelo de Modulith. La verificación real mantiene el importador por defecto, sin exclusiones personalizadas. Los tests negativos exigen `Violations` y mensajes que identifiquen el acceso interno o el ciclo, respectivamente.
 
 ## Reglas que guían la implementación
 
@@ -55,8 +79,6 @@ El entorno se preparará con Docker Compose:
 - FloCI para probar las integraciones AWS compatibles.
 
 PostgreSQL y Redis/Valkey se ejecutarán como motores reales. FloCI se utilizará para emular servicios AWS y no sustituirá las validaciones en staging.
-
-Los comandos de arranque, compilación y pruebas se añadirán cuando el proyecto base esté configurado.
 
 ## Infraestructura y despliegue
 
