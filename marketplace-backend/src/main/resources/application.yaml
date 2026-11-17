@@ -3,6 +3,25 @@ spring:
     name: marketplace-backend
   modulith:
     detection-strategy: explicitly-annotated
+    events:
+      completion-mode: update
+      republish-outstanding-events-on-restart: true
+      jdbc:
+        use-legacy-structure: false
+        schema-initialization:
+          enabled: false
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  flyway:
+    enabled: true
+    validate-on-migrate: true
+    baseline-on-migrate: false
+    clean-disabled: true
+  sql:
+    init:
+      mode: never
   threads:
     virtual:
       enabled: true

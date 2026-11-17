@@ -1,6 +1,7 @@
 package com.linares.marketplace;
 
 import org.springframework.boot.test.context.TestConfiguration;
+import com.linares.marketplace.persistence.PostgresImage;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Profile;
@@ -15,7 +16,7 @@ class TestcontainersConfiguration {
 	@Bean
 	@ServiceConnection
 	PostgreSQLContainer postgresContainer() {
-		return new PostgreSQLContainer(DockerImageName.parse("postgres:latest"));
+		return new PostgreSQLContainer(PostgresImage.IMAGE);
 	}
 
 	@Bean
