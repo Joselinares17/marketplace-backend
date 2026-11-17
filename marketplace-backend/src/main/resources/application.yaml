@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: marketplace-backend
+  threads:
+    virtual:
+      enabled: true
