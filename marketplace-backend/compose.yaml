@@ -1,13 +1,57 @@
 services:
   postgres:
-    image: 'postgres:latest'
+    image: postgres:16.16-bookworm@sha256:a49f7438ba03589f9b1ca062f2da82e899b48ea1dc50d2449fa09a70be83ebca
     environment:
-      - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
-      - 'POSTGRES_USER=myuser'
+      POSTGRES_DB: ${POSTGRES_DB:-marketplace_local}
+      POSTGRES_USER: ${POSTGRES_USER:-marketplace_local}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Create .env from .env.example}
     ports:
-      - '5432'
-  redis:
-    image: 'redis:latest'
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  valkey:
+    image: valkey/valkey:8.1.10-alpine3.24@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
+    environment:
+      REDISCLI_AUTH: ${VALKEY_PASSWORD:?Create .env from .env.example}
+    command: ["sh", "-c", 'exec valkey-server --save "" --appendonly no --requirepass "$$REDISCLI_AUTH"']
     ports:
-      - '6379'
+      - "127.0.0.1:${VALKEY_HOST_PORT:-6379}:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -qx PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  mailpit:
+    image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "500"
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_HOST_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_UI_HOST_PORT:-8025}:8025"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  postgres-data:
+
+networks:
+  default:
+    driver: bridge

@@ -71,12 +71,22 @@ Los importes se manejan con `BigDecimal`, con reglas explícitas de precisión y
 
 ## Desarrollo local
 
-El entorno se preparará con Docker Compose:
+El entorno local está preparado con Docker Compose:
 
 - PostgreSQL para persistencia.
-- Redis/Valkey para sesiones y caché.
+- Valkey para futuras sesiones y caché.
 - Mailpit para revisar correos sin enviarlos a destinatarios reales.
-- FloCI para probar las integraciones AWS compatibles.
+
+Desde esta carpeta, copiar `.env.example` a `.env` con `Copy-Item .env.example .env` en PowerShell o `cp .env.example .env` en Linux/macOS, sin sobrescribir una configuración local existente. Después:
+
+```sh
+docker compose config --quiet
+docker compose up -d --wait
+docker compose ps
+docker compose logs --tail=100
+```
+
+PostgreSQL 16.16, Valkey 8.1.10 y Mailpit 1.32.0 están fijados por tag y digest multiarch. Los puertos del host se configuran en `.env` y se publican solo en `127.0.0.1`: PostgreSQL 5432, Valkey 6379, SMTP 1025 y Mailpit UI en http://localhost:8025 por defecto. Entre contenedores se usan `postgres:5432`, `valkey:6379` y `mailpit:1025`. Las credenciales del ejemplo son sintéticas.
 
 PostgreSQL y Redis/Valkey se ejecutarán como motores reales. FloCI se utilizará para emular servicios AWS y no sustituirá las validaciones en staging.
 
