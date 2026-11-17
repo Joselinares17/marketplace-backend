@@ -1,4 +1,7 @@
 spring:
+  main:
+    banner-mode: off
+    log-startup-info: false
   autoconfigure:
     exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   application:
@@ -13,9 +16,9 @@ spring:
         schema-initialization:
           enabled: false
   datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: ${DB_URL:}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
   flyway:
     enabled: true
     validate-on-migrate: true
@@ -45,3 +48,19 @@ management:
       show-components: never
       probes:
         enabled: false
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web: ERROR
+    org.springframework.security: WARN
+    org.springframework.modulith.events: WARN
+    org.flywaydb: WARN
+    com.zaxxer.hikari: WARN
+    org.postgresql: WARN
+  structured:
+    format:
+      console: ecs
+      file: ecs
+    json:
+      customizer: com.linares.marketplace.bootstrap.config.ProtectedLogging

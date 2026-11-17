@@ -25,6 +25,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import com.linares.marketplace.bootstrap.MarketplaceBackendApplication;
 import com.linares.marketplace.persistence.PostgresImage;
 
+@org.springframework.test.context.ActiveProfiles("ci")
 @Testcontainers
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(classes=MarketplaceBackendApplication.class, webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -32,7 +33,7 @@ class SecurityHttpIT {
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(PostgresImage.IMAGE);
 
     @DynamicPropertySource static void database(DynamicPropertyRegistry properties) {
-        properties.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        properties.add("spring.datasource.url", () -> PostgresImage.jdbcUrl(POSTGRES));
         properties.add("spring.datasource.username", POSTGRES::getUsername);
         properties.add("spring.datasource.password", POSTGRES::getPassword);
     }

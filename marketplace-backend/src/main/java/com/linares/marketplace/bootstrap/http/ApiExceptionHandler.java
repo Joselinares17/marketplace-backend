@@ -13,6 +13,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ApiExceptionHandler.class);
     private static final Set<String> CONSTRAINTS = Set.of("NotBlank", "NotNull", "NotEmpty",
             "Email", "Size", "Min", "Max", "Positive", "PositiveOrZero", "Pattern");
 
@@ -50,6 +51,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         if (ex instanceof AccessDeniedException || ex instanceof AuthenticationException) {
             throw ex;
         }
+        LOG.error("HTTP request failed; exceptionType={}", ex.getClass().getSimpleName());
         return handleExceptionInternal(ex, null, new HttpHeaders(),
                 HttpStatus.INTERNAL_SERVER_ERROR, request);
     }

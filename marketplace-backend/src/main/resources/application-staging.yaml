@@ -1,0 +1,6 @@
+# No local defaults. ECS injects the existing datasource environment variables.
+server:
+  servlet:
+    session:
+      cookie:
+        secure: true

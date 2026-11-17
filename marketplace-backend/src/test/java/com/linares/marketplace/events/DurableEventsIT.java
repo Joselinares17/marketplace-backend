@@ -42,11 +42,11 @@ public class DurableEventsIT {
             assertThat(context.getBean(PlatformTransactionManager.class)).isInstanceOf(JdbcTransactionManager.class);
             long id = publish(context, "committed@example.invalid", false);
             await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
-                assertThat(jdbc.queryForObject("SELECT count(*) FROM b005_probe_consumed WHERE user_id=?",
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM probe_consumed WHERE user_id=?",
                         Long.class, id)).isEqualTo(1);
                 assertThat(jdbc.queryForObject("SELECT count(*) FROM event_publication WHERE "
-                        + "serialized_event LIKE ? AND completion_date IS NOT NULL AND status='COMPLETED'",
-                        Long.class, "%\"userId\":" + id + "%")).isEqualTo(1);
+                        + "(serialized_event::jsonb ->> 'userId') = ? AND completion_date IS NOT NULL AND status='COMPLETED'",
+                        Long.class, Long.toString(id))).isEqualTo(1);
             });
             assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE id=?", Long.class, id)).isEqualTo(1);
         }
@@ -57,14 +57,14 @@ public class DurableEventsIT {
         try (var context = start(false)) {
             var jdbc = context.getBean(JdbcTemplate.class);
             long publicationsBefore = jdbc.queryForObject("SELECT count(*) FROM event_publication", Long.class);
-            long effectsBefore = jdbc.queryForObject("SELECT count(*) FROM b005_probe_consumed", Long.class);
+            long effectsBefore = jdbc.queryForObject("SELECT count(*) FROM probe_consumed", Long.class);
             assertThrows(IllegalStateException.class, () -> publish(context, "rollback@example.invalid", true));
             assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE email='rollback@example.invalid'",
                     Long.class)).isZero();
             assertThat(jdbc.queryForObject("SELECT count(*) FROM event_publication", Long.class))
                     .isEqualTo(publicationsBefore);
             assertThat(context.getBean(ProbeListener.class).invocationCount()).isZero();
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM b005_probe_consumed", Long.class))
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM probe_consumed", Long.class))
                     .isEqualTo(effectsBefore);
         }
     }
@@ -78,11 +78,11 @@ public class DurableEventsIT {
             userId = publish(first, "restart@example.invalid", false);
             var jdbc = first.getBean(JdbcTemplate.class);
             await().atMost(Duration.ofSeconds(15)).untilAsserted(() ->
-                    assertThat(jdbc.queryForObject("SELECT status FROM event_publication WHERE serialized_event LIKE ?",
-                            String.class, "%\"userId\":" + userId + "%")).isEqualTo("FAILED"));
-            publicationId = jdbc.queryForObject("SELECT id FROM event_publication WHERE serialized_event LIKE ?",
-                    UUID.class, "%\"userId\":" + userId + "%");
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM b005_probe_consumed WHERE user_id=?",
+                    assertThat(jdbc.queryForObject("SELECT status FROM event_publication WHERE (serialized_event::jsonb ->> 'userId') = ?",
+                            String.class, Long.toString(userId))).isEqualTo("FAILED"));
+            publicationId = jdbc.queryForObject("SELECT id FROM event_publication WHERE (serialized_event::jsonb ->> 'userId') = ?",
+                    UUID.class, Long.toString(userId));
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM probe_consumed WHERE user_id=?",
                     Long.class, userId)).isZero();
         }
         assertThat(first.isActive()).isFalse();
@@ -92,7 +92,7 @@ public class DurableEventsIT {
             await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
                 assertThat(jdbc.queryForObject("SELECT status FROM event_publication WHERE id=?",
                         String.class, publicationId)).isEqualTo("COMPLETED");
-                assertThat(jdbc.queryForObject("SELECT count(*) FROM b005_probe_consumed WHERE user_id=?",
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM probe_consumed WHERE user_id=?",
                         Long.class, userId)).isEqualTo(1);
             });
             assertThat(jdbc.queryForObject("SELECT completion_attempts FROM event_publication WHERE id=?",
@@ -104,11 +104,12 @@ public class DurableEventsIT {
 
     private ConfigurableApplicationContext start(boolean fail) {
         return new SpringApplicationBuilder(MarketplaceBackendApplication.class, ProbeConfiguration.class)
+                .profiles("ci")
                 .web(WebApplicationType.NONE)
-                .run("--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
+                .run("--spring.datasource.url=" + PostgresImage.jdbcUrl(POSTGRES),
                         "--spring.datasource.username=" + POSTGRES.getUsername(),
                         "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--b005.fail=" + fail);
+                        "--fixture.fail=" + fail);
     }
 
     private long publish(ConfigurableApplicationContext context, String email, boolean rollback) {
@@ -117,8 +118,8 @@ public class DurableEventsIT {
             long id = jdbc.queryForObject("INSERT INTO users(email) VALUES (?) RETURNING id", Long.class, email);
             context.publishEvent(new ProbeEvent(id));
             // The publication is already visible on the business transaction's connection before commit.
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM event_publication WHERE serialized_event LIKE ?",
-                    Long.class, "%\"userId\":" + id + "%")).isEqualTo(1);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM event_publication WHERE (serialized_event::jsonb ->> 'userId') = ?",
+                    Long.class, Long.toString(id))).isEqualTo(1);
             if (rollback) {
                 throw new IllegalStateException("Synthetic business rollback");
             }
@@ -129,8 +130,8 @@ public class DurableEventsIT {
     @TestConfiguration(proxyBeanMethods = false)
     public static class ProbeConfiguration {
         @Bean
-        ProbeListener probeListener(JdbcTemplate jdbc, @Value("${b005.fail:false}") boolean fail) {
-            jdbc.execute("CREATE TABLE IF NOT EXISTS b005_probe_consumed (user_id BIGINT PRIMARY KEY)");
+        ProbeListener probeListener(JdbcTemplate jdbc, @Value("${fixture.fail:false}") boolean fail) {
+            jdbc.execute("CREATE TABLE IF NOT EXISTS probe_consumed (user_id BIGINT PRIMARY KEY)");
             return new ProbeListener(jdbc, fail);
         }
     }
@@ -152,7 +153,7 @@ public class DurableEventsIT {
         @ApplicationModuleListener
         public void on(ProbeEvent event) {
             invocations.incrementAndGet();
-            jdbc.update("INSERT INTO b005_probe_consumed(user_id) VALUES (?) ON CONFLICT DO NOTHING", event.userId());
+            jdbc.update("INSERT INTO probe_consumed(user_id) VALUES (?) ON CONFLICT DO NOTHING", event.userId());
             if (fail) {
                 throw new IllegalStateException("Controlled synthetic listener failure");
             }
